@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF学習アプリ (Twitter風UI)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+    </script>
+    <style>
+        body {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+            background-color: #000000; 
+            color: #E7E9EA; 
+        }
+        .tweet-card {
+            background-color: #000000; 
+            border: 1px solid #2F3336; 
+            cursor: pointer; 
+        }
+        .tweet-card:hover {
+            background-color: #16181C; 
+        }
+        .tweet-action-icon, .comment-modal-action {
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        }
+        .tweet-action-icon:hover span, .tweet-action-icon:hover i,
+        .comment-modal-action:hover i, .comment-modal-action:hover span {
+            color: #1D9BF0; 
+        }
+        .tweet-action-icon.comment-btn:hover { background-color: rgba(29, 155, 240, 0.1); }
+        .tweet-action-icon.retweet-btn:hover { background-color: rgba(0, 186, 124, 0.1); }
+        .tweet-action-icon.retweet-btn:hover span, .tweet-action-icon.retweet-btn:hover i { color: #00BA7C; }
+        .tweet-action-icon.like-btn:hover { background-color: rgba(249, 24, 128, 0.1); }
+        .tweet-action-icon.like-btn:hover span, .tweet-action-icon.like-btn:hover i { color: #F91880; }
+        .tweet-action-icon.analytics-btn:hover { background-color: rgba(29, 155, 240, 0.1); }
+        .tweet-action-icon.bookmark-btn:hover { background-color: rgba(29, 155, 240, 0.1); }
+        .tweet-action-icon.share-btn-v2:hover { background-color: rgba(29, 155, 240, 0.1); }
+
+
+        .tweet-action-icon.liked i { color: #F91880; }
+        .tweet-action-icon.liked .like-count-display { color: #F91880; } 
+        .tweet-action-icon.retweeted i { color: #00BA7C; }
+        .tweet-action-icon.retweeted .retweet-count-display { color: #00BA7C; } 
+
+        .modal-bg {
+            background-color: rgba(91, 112, 131, 0.4); 
+        }
+        .modal-content, .sticky-header-bg { 
+            background-color: #000000; 
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #16181C; } 
+        ::-webkit-scrollbar-thumb { background: #2F3336; border-radius: 4px; } 
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .loader {
+            border: 4px solid #2F3336; 
+            border-top: 4px solid #1D9BF0;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .comment-modal-content, .profile-modal-content { max-height: 85vh; }
+        .comment-input, .profile-input {
+            background-color: transparent;
+            border: 1px solid #38444d; /* 入力欄に枠線を追加 */
+            color: #E7E9EA;
+            width: 100%;
+            padding: 12px; /* パディング調整 */
+            font-size: 1rem; /* フォントサイズ調整 */
+            line-height: 1.5rem; 
+            border-radius: 6px; /* 角丸 */
+        }
+        .comment-input:focus, .profile-input:focus { 
+            outline: none;
+            border-color: #1D9BF0; /* フォーカス時の枠線色 */
+        }
+        .comment-input::placeholder, .profile-input::placeholder { color: #71767B; }
+
+        .heart-animation { display: inline-block; animation: heartBeat 0.3s ease-out forwards; }
+        @keyframes heartBeat {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.4); }
+            100% { transform: scale(1); }
+        }
+        .retweet-animation { display: inline-block; animation: retweetRotate 0.3s ease-out forwards; }
+        @keyframes retweetRotate {
+            0% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(360deg) scale(1.2); }
+            100% { transform: rotate(360deg) scale(1); }
+        }
+        .no-propagate-click { cursor: default; }
+        
+        .comment-target-tweet-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .comment-target-tweet-avatar, .profile-avatar-preview {
+            width: 2.5rem; 
+            height: 2.5rem; 
+            border-radius: 9999px;
+            margin-right: 0.75rem; 
+            object-fit: cover; /* アイコン用 */
+        }
+        .profile-avatar-preview { /* プロフィール編集用プレビュー */
+            width: 5rem;
+            height: 5rem;
+            margin-bottom: 1rem;
+        }
+        .comment-target-tweet-userinfo span {
+            display: block;
+        }
+        .comment-target-tweet-image {
+            max-height: 200px; 
+            border-radius: 0.75rem; 
+            border: 1px solid #2F3336; 
+            margin-top: 0.5rem; 
+        }
+        .text-dimmed { 
+            color: #71767B;
+        }
+        .border-dimmed { 
+            border-color: #2F3336;
+        }
+        .file-input-label {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background-color: #1D9BF0;
+            color: white;
+            border-radius: 9999px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .file-input-label:hover {
+            background-color: #1A8CD8;
+        }
+    </style>
+</head>
+<body class="flex justify-center min-h-screen">
+    <div class="w-full max-w-2xl">
+        <header class="sticky top-0 z-20 bg-opacity-80 backdrop-blur-md sticky-header-bg border-b border-dimmed p-4">
+            <div class="flex items-center justify-between">
+                <h1 class="text-xl font-bold text-[#E7E9EA]">学習タイムライン</h1>
+                <div class="flex items-center space-x-4">
+                    <button id="openProfileModalBtn" class="text-[#E7E9EA] hover:bg-[#16181C] p-2 rounded-full">
+                        <i class="fas fa-cog fa-lg"></i>
+                    </button>
+                    <label for="pdfUpload" class="cursor-pointer bg-[#1D9BF0] hover:bg-[#1A8CD8] text-white font-bold py-2 px-4 rounded-full transition duration-150 ease-in-out">
+                        PDFをアップロード
+                    </label>
+                </div>
+                <input type="file" id="pdfUpload" class="hidden" accept="application/pdf">
+            </div>
+        </header>
+
+        <div id="loadingIndicator" class="hidden flex justify-center items-center p-8">
+            <div class="loader"></div>
+            <p class="ml-4 text-lg">PDFを処理中...</p>
+        </div>
+        
+        <div id="noPdfMessage" class="text-center p-8">
+            <i class="fas fa-file-pdf fa-3x text-dimmed mb-4"></i>
+            <p class="text-xl text-dimmed">PDFファイルをアップロードして学習を開始しましょう。</p>
+            <p class="text-sm text-dimmed mt-2">以前の学習データがあれば自動で読み込まれます。</p>
+        </div>
+
+        <main id="timeline" class="pb-16">
+            </main>
+
+        <footer class="fixed bottom-0 left-0 right-0 w-full max-w-2xl mx-auto sticky-header-bg border-t border-dimmed p-2 flex justify-around items-center z-10 md:hidden">
+            <button class="text-[#E7E9EA] hover:bg-[#16181C] p-3 rounded-full"> <i class="fas fa-home fa-lg"></i> </button>
+            <button class="text-[#E7E9EA] hover:bg-[#16181C] p-3 rounded-full"> <i class="fas fa-search fa-lg"></i> </button>
+            <button class="text-[#E7E9EA] hover:bg-[#16181C] p-3 rounded-full"> <i class="far fa-bell fa-lg"></i> </button>
+            <button class="text-[#E7E9EA] hover:bg-[#16181C] p-3 rounded-full"> <i class="far fa-envelope fa-lg"></i> </button>
+        </footer>
+        
+        <div id="imageModal" class="fixed inset-0 z-50 items-center justify-center hidden modal-bg">
+            <div class="modal-content p-4 rounded-lg max-w-3xl max-h-[90vh] overflow-auto relative">
+                <img id="modalImage" src="" alt="拡大画像" class="max-w-full max-h-[80vh] rounded">
+                <button id="closeImageModal" class="absolute top-2 right-2 text-white bg-gray-700 hover:bg-gray-600 rounded-full p-2 text-xl leading-none">
+                    &times;
+                </button>
+            </div>
+        </div>
+
+        <div id="commentModal" class="fixed inset-0 z-30 items-center justify-center hidden modal-bg">
+            <div class="modal-content rounded-xl shadow-xl w-full max-w-xl comment-modal-content flex flex-col">
+                <div class="p-3 border-b border-dimmed flex items-center sticky top-0 sticky-header-bg z-10">
+                    <button id="closeCommentModal" class="text-[#E7E9EA] hover:bg-[#16181C] p-2 rounded-full mr-4">
+                        <i class="fas fa-times fa-lg"></i>
+                    </button>
+                    <h2 class="text-xl font-bold text-[#E7E9EA]">ポストの詳細</h2>
+                </div>
+                <div id="commentTargetTweet" class="p-4 border-b border-dimmed"></div>
+                <div class="p-4 border-b border-dimmed flex sticky top-[61px] sticky-header-bg z-10"> 
+                    <img id="commentUserAvatar" class="w-10 h-10 rounded-full mr-3 flex-shrink-0 comment-target-tweet-avatar" src="https://placehold.co/40x40/71767B/FFFFFF?text=自分" alt="My Avatar">
+                    <div class="flex-1">
+                        <textarea id="commentInput" class="comment-input resize-none !border-none !p-0" placeholder="返信をポストする" rows="1"></textarea> 
+                    </div>
+                </div>
+                <div class="p-4 flex justify-end items-center border-b border-dimmed sticky top-[calc(61px+70px)] sticky-header-bg z-10"> <button id="submitCommentButton" class="bg-[#1D9BF0] hover:bg-[#1A8CD8] text-white font-bold py-2 px-5 rounded-full transition duration-150 ease-in-out disabled:opacity-50" disabled>
+                        返信
+                    </button>
+                </div>
+                <div id="commentsList" class="flex-1 overflow-y-auto p-0"></div>
+            </div>
+        </div>
+
+        <div id="profileModal" class="fixed inset-0 z-40 items-center justify-center hidden modal-bg">
+            <div class="modal-content rounded-xl shadow-xl w-full max-w-md profile-modal-content flex flex-col p-0">
+                <div class="p-3 border-b border-dimmed flex items-center justify-between sticky top-0 sticky-header-bg z-10">
+                    <div class="flex items-center">
+                        <button id="closeProfileModalBtn" class="text-[#E7E9EA] hover:bg-[#16181C] p-2 rounded-full mr-4">
+                            <i class="fas fa-times fa-lg"></i>
+                        </button>
+                        <h2 class="text-xl font-bold text-[#E7E9EA]">プロフィールを編集</h2>
+                    </div>
+                    <button id="saveProfileButton" class="bg-[#E7E9EA] hover:bg-gray-200 text-black font-bold py-2 px-4 rounded-full transition duration-150 ease-in-out text-sm">
+                        保存
+                    </button>
+                </div>
+                <div class="p-6 space-y-6 overflow-y-auto">
+                    <div class="flex flex-col items-center">
+                        <img id="profileAvatarPreview" class="profile-avatar-preview" src="https://placehold.co/80x80/71767B/FFFFFF?text=自分" alt="Profile Avatar Preview">
+                        <label for="profileAvatarInput" class="file-input-label">画像を変更</label>
+                        <input type="file" id="profileAvatarInput" class="hidden" accept="image/jpeg, image/png, image/gif">
+                    </div>
+                    <div>
+                        <label for="profileNameInput" class="block text-sm font-medium text-dimmed mb-1">名前</label>
+                        <input type="text" id="profileNameInput" class="profile-input" placeholder="名前を入力">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const pdfUpload = document.getElementById('pdfUpload');
+        const timeline = document.getElementById('timeline');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const noPdfMessage = document.getElementById('noPdfMessage');
+        
+        const imageModal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
+        const closeImageModalBtn = document.getElementById('closeImageModal');
+
+        const commentModal = document.getElementById('commentModal');
+        const closeCommentModalBtn = document.getElementById('closeCommentModal');
+        const commentTargetTweet = document.getElementById('commentTargetTweet');
+        const commentInput = document.getElementById('commentInput');
+        const submitCommentButton = document.getElementById('submitCommentButton');
+        const commentsList = document.getElementById('commentsList');
+        const commentUserAvatar = document.getElementById('commentUserAvatar'); // コメント入力欄のアバター
+
+        const openProfileModalBtn = document.getElementById('openProfileModalBtn');
+        const profileModal = document.getElementById('profileModal');
+        const closeProfileModalBtn = document.getElementById('closeProfileModalBtn');
+        const profileAvatarPreview = document.getElementById('profileAvatarPreview');
+        const profileAvatarInput = document.getElementById('profileAvatarInput');
+        const profileNameInput = document.getElementById('profileNameInput');
+        const saveProfileButton = document.getElementById('saveProfileButton');
+
+        // --- Global State ---
+        let currentReplyingPageNum = null; 
+        let currentPdfName = null; 
+        let currentPdfNumPages = 0; 
+        let userProfile = { name: "自分", avatar: "https://placehold.co/40x40/71767B/FFFFFF?text=自分" }; // デフォルトプロフィール
+
+        const STORAGE_KEY_PREFIX = 'pdfTwitterApp_';
+        let activePdfIdentifier = ''; 
+
+        // --- Utility Functions ---
+        function getStorageKey(key) {
+            return `${STORAGE_KEY_PREFIX}${activePdfIdentifier}_${key}`;
+        }
+
+        function loadData(key, defaultValue = {}) {
+            if (!activePdfIdentifier && key !== 'userProfile') return defaultValue; // userProfileはPDFに依存しない
+            const storageKey = key === 'userProfile' ? `${STORAGE_KEY_PREFIX}userProfile` : getStorageKey(key);
+            const data = localStorage.getItem(storageKey);
+            try {
+                return data ? JSON.parse(data) : defaultValue;
+            } catch (e) {
+                console.error(`ローカルストレージからの ${key} の読み込みに失敗しました:`, e);
+                return defaultValue;
+            }
+        }
+
+        function saveData(key, data) {
+            if (!activePdfIdentifier && key !== 'userProfile') return;
+            const storageKey = key === 'userProfile' ? `${STORAGE_KEY_PREFIX}userProfile` : getStorageKey(key);
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(data));
+            } catch (e) {
+                console.error(`ローカルストレージへの ${key} の保存に失敗しました:`, e);
+            }
+        }
+        
+        // --- Data Variables ---
+        let likeCounts, retweetCounts, commentCounts, commentsData, likedPages, retweetedPages, displayCounts;
+
+        // --- Initialization ---
+        function initializeUserProfile() {
+            const savedProfile = loadData('userProfile', { name: "自分", avatar: "https://placehold.co/40x40/71767B/FFFFFF?text=自分" });
+            userProfile = savedProfile;
+            updateDisplayedUserProfile();
+        }
+
+        function updateDisplayedUserProfile() {
+            commentUserAvatar.src = userProfile.avatar;
+            // 他にもユーザー名やアバターを表示する箇所があればここで更新
+        }
+
+
+        function initializeDataForPdf(pdfIdentifier) {
+            activePdfIdentifier = pdfIdentifier;
+            likeCounts = loadData('likeCounts', {}); 
+            retweetCounts = loadData('retweetCounts', {}); 
+            commentCounts = loadData('commentCounts', {}); 
+            commentsData = loadData('commentsData', {});
+            likedPages = new Set(loadData('likedPages_set', []));
+            retweetedPages = new Set(loadData('retweetedPages_set', []));
+            displayCounts = loadData('displayCounts', {}); 
+        }
+        
+        // --- Event Listeners ---
+        commentInput.addEventListener('input', () => {
+            submitCommentButton.disabled = commentInput.value.trim() === '';
+            commentInput.style.height = 'auto';
+            commentInput.style.height = (commentInput.scrollHeight) + 'px';
+        });
+
+        pdfUpload.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file || file.type !== 'application/pdf') {
+                console.warn('PDFファイルを選択してください。');
+                return;
+            }
+            currentPdfName = file.name;
+            initializeDataForPdf(currentPdfName); 
+
+            timeline.innerHTML = ''; 
+            noPdfMessage.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+
+            const fileReader = new FileReader();
+            fileReader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                try {
+                    const pdf = await pdfjsLib.getDocument({data: typedarray}).promise;
+                    currentPdfNumPages = pdf.numPages;
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        if (likeCounts[i] === undefined) likeCounts[i] = 0;
+                        if (retweetCounts[i] === undefined) retweetCounts[i] = 0;
+                        if (commentCounts[i] === undefined) commentCounts[i] = 0;
+                        if (!commentsData[i]) commentsData[i] = [];
+
+                        if (!displayCounts[i]) {
+                            displayCounts[i] = {
+                                likes: Math.floor(Math.random() * 15000) + Math.floor(Math.random() * 200), 
+                                retweets: Math.floor(Math.random() * 1500) + Math.floor(Math.random() * 50),
+                                impressions: Math.floor(Math.random() * 200000) + 1000
+                            };
+                        }
+                        await renderPageAsTweet(pdf, i, file.name, pdf.numPages);
+                    }
+                    saveAllData(); 
+                } catch (error) {
+                    console.error('PDFの読み込みまたはレンダリングに失敗しました:', error);
+                    noPdfMessage.classList.remove('hidden');
+                    console.error('PDFの処理中にエラーが発生しました。');
+                } finally {
+                    loadingIndicator.classList.add('hidden');
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+        
+        function saveAllData() {
+            if (!activePdfIdentifier) return;
+            saveData('likeCounts', likeCounts);
+            saveData('retweetCounts', retweetCounts);
+            saveData('commentCounts', commentCounts);
+            saveData('commentsData', commentsData);
+            saveData('likedPages_set', Array.from(likedPages));
+            saveData('retweetedPages_set', Array.from(retweetedPages));
+            saveData('displayCounts', displayCounts); 
+            saveData('userProfile', userProfile); // プロフィールも保存
+        }
+
+        async function renderPageAsTweet(pdf, pageNum, pdfName, totalPages) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 }); 
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            const imageUrl = canvas.toDataURL('image/jpeg', 0.8); 
+
+            const tweetElement = createTweetElement(pageNum, imageUrl, pdfName, totalPages);
+            timeline.appendChild(tweetElement);
+        }
+
+        function formatCount(num) {
+            if (num === undefined || num === null) return '0'; 
+            if (num >= 10000) {
+                return (num / 10000).toFixed(1).replace(/\.0$/, '') + '万';
+            }
+            if (num >= 0 && num <= 9999) { 
+                return num.toLocaleString(); 
+            }
+            return num.toString(); 
+        }
+
+        function createTweetElement(pageNum, imageUrl, pdfName, totalPages) {
+            const article = document.createElement('article');
+            article.className = 'tweet-card border-b border-dimmed p-4 flex space-x-3'; 
+            article.dataset.pageNum = pageNum;
+            article.dataset.imageUrl = imageUrl; 
+            article.dataset.pdfName = pdfName; 
+
+            const currentDisplayCounts = displayCounts[pageNum] || { likes: 0, retweets: 0, impressions: 0};
+
+            article.innerHTML = `
+                <div class="flex-shrink-0 no-propagate-click">
+                    <img class="w-12 h-12 rounded-full comment-target-tweet-avatar" src="https://placehold.co/48x48/1D9BF0/FFFFFF?text=P${pageNum}" alt="User Avatar">
+                </div>
+                <div class="flex-1">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-1">
+                            <span class="font-bold text-[#E7E9EA]">PDFbot</span> 
+                            <span class="text-sm text-dimmed">@PDFbot_study</span> 
+                            <span class="text-sm text-dimmed">· ${pdfName.substring(0,15)}${pdfName.length > 15 ? '...' : ''}</span>
+                        </div>
+                        <button class="text-dimmed hover:text-[#1D9BF0] p-1 rounded-full no-propagate-click">
+                            <i class="fas fa-ellipsis-h"></i>
+                        </button>
+                    </div>
+                    <p class="text-sm text-dimmed mb-2">ページ ${pageNum} / ${totalPages}</p>
+                    <div class="mt-2 rounded-lg overflow-hidden border border-dimmed cursor-pointer page-image-container no-propagate-click"> 
+                        <img src="${imageUrl}" alt="PDFページ ${pageNum}" class="w-full h-auto object-contain max-h-[600px] page-image"> 
+                    </div>
+                    <div class="flex justify-between items-center mt-3 text-dimmed no-propagate-click">
+                        <button class="tweet-action-icon comment-btn flex items-center space-x-1 p-2 rounded-full group">
+                            <i class="far fa-comment"></i>
+                            <span class="comment-count text-xs">${commentCounts[pageNum] || 0}</span>
+                        </button>
+                        <button class="tweet-action-icon retweet-btn flex items-center space-x-1 p-2 rounded-full group ${retweetedPages.has(pageNum) ? 'retweeted' : ''}">
+                            <i class="fas fa-retweet"></i>
+                            <span class="retweet-count-display text-xs">${formatCount(currentDisplayCounts.retweets)}</span>
+                        </button>
+                        <button class="tweet-action-icon like-btn flex items-center space-x-1 p-2 rounded-full group ${likedPages.has(pageNum) ? 'liked' : ''}">
+                            <i class="${likedPages.has(pageNum) ? 'fas' : 'far'} fa-heart"></i>
+                            <span class="like-count-display text-xs">${formatCount(currentDisplayCounts.likes)}</span>
+                        </button>
+                        <button class="tweet-action-icon analytics-btn flex items-center space-x-1 p-2 rounded-full group">
+                            <i class="fas fa-chart-line"></i> 
+                            <span class="impression-count-display text-xs">${formatCount(currentDisplayCounts.impressions)}</span>
+                        </button>
+                        <div class="flex">
+                            <button class="tweet-action-icon bookmark-btn flex items-center space-x-1 p-2 rounded-full group">
+                                <i class="far fa-bookmark"></i>
+                            </button>
+                            <button class="tweet-action-icon share-btn-v2 flex items-center space-x-1 p-2 rounded-full group">
+                                <i class="fas fa-arrow-up-from-bracket"></i> 
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            article.addEventListener('click', (e) => {
+                if (e.target.closest('.no-propagate-click')) {
+                    return; 
+                }
+                openCommentModal(parseInt(article.dataset.pageNum), article.dataset.imageUrl, article.dataset.pdfName);
+            });
+
+            const likeButton = article.querySelector('.like-btn');
+            const retweetButton = article.querySelector('.retweet-btn');
+            const commentButton = article.querySelector('.comment-btn');
+            const pageImageContainer = article.querySelector('.page-image-container');
+
+            likeButton.addEventListener('click', (e) => handleLike(pageNum, likeButton, article));
+            retweetButton.addEventListener('click', (e) => handleRetweet(pageNum, retweetButton, article));
+            commentButton.addEventListener('click', (e) => openCommentModal(pageNum, imageUrl, pdfName));
+            pageImageContainer.addEventListener('click', () => {
+                modalImage.src = imageUrl;
+                imageModal.style.display = 'flex';
+            });
+            
+            updateLikeButtonState(pageNum, likeButton, article);
+            updateRetweetButtonState(pageNum, retweetButton, article);
+
+            return article;
+        }
+        
+        function updateLikeButtonState(pageNum, buttonElement, articleElement) {
+            const heartIcon = buttonElement.querySelector('i');
+            if (likedPages.has(pageNum)) {
+                heartIcon.classList.remove('far');
+                heartIcon.classList.add('fas');
+                buttonElement.classList.add('liked'); 
+            } else {
+                heartIcon.classList.remove('fas');
+                heartIcon.classList.add('far');
+                buttonElement.classList.remove('liked');
+            }
+        }
+
+        function updateRetweetButtonState(pageNum, buttonElement, articleElement) {
+            if (retweetedPages.has(pageNum)) {
+                buttonElement.classList.add('retweeted'); 
+            } else {
+                buttonElement.classList.remove('retweeted');
+            }
+        }
+
+        function handleLike(pageNum, buttonElement, articleElement) {
+            const heartIcon = buttonElement.querySelector('i');
+            if (likedPages.has(pageNum)) {
+                likedPages.delete(pageNum);
+                likeCounts[pageNum] = Math.max(0, (likeCounts[pageNum] || 0) - 1); 
+            } else {
+                likedPages.add(pageNum);
+                likeCounts[pageNum] = (likeCounts[pageNum] || 0) + 1; 
+                heartIcon.classList.add('heart-animation'); 
+                setTimeout(() => heartIcon.classList.remove('heart-animation'), 300); 
+            }
+            updateLikeButtonState(pageNum, buttonElement, articleElement); 
+            saveAllData(); 
+        }
+
+        function handleRetweet(pageNum, buttonElement, articleElement) {
+            const icon = buttonElement.querySelector('i');
+            if (retweetedPages.has(pageNum)) {
+                retweetedPages.delete(pageNum);
+                retweetCounts[pageNum] = Math.max(0, (retweetCounts[pageNum] || 0) - 1); 
+            } else {
+                retweetedPages.add(pageNum);
+                retweetCounts[pageNum] = (retweetCounts[pageNum] || 0) + 1; 
+                icon.classList.add('retweet-animation');
+                setTimeout(() => icon.classList.remove('retweet-animation'), 300);
+            }
+            updateRetweetButtonState(pageNum, buttonElement, articleElement); 
+            saveAllData(); 
+        }
+
+        function openCommentModal(pageNum, targetImageUrl, pdfName) {
+            currentReplyingPageNum = pageNum;
+            commentModal.style.display = 'flex';
+            commentInput.value = ''; 
+            commentInput.style.height = 'auto'; 
+            submitCommentButton.disabled = true; 
+            commentInput.focus();
+
+            commentTargetTweet.innerHTML = `
+                <div class="comment-target-tweet-header">
+                    <img class="comment-target-tweet-avatar" src="https://placehold.co/48x48/1D9BF0/FFFFFF?text=P${pageNum}" alt="User Avatar">
+                    <div class="comment-target-tweet-userinfo">
+                        <span class="font-bold text-[#E7E9EA]">PDFbot</span> 
+                        <span class="text-sm text-dimmed">@PDFbot_study</span> 
+                    </div>
+                </div>
+                <p class="text-sm text-[#E7E9EA] mb-2 ml-1">ページ ${pageNum} / ${currentPdfNumPages} (${pdfName.substring(0,20)}${pdfName.length > 20 ? '...' : ''})</p>
+                <img src="${targetImageUrl}" alt="PDFページ ${pageNum}" class="w-full h-auto object-contain comment-target-tweet-image">
+                <p class="text-sm text-dimmed mt-3 ml-1">返信先: <span class="text-[#1D9BF0]">@PDFbot_study</span></p> 
+            `;
+            renderComments(pageNum);
+        }
+
+        function renderComments(pageNum) {
+            commentsList.innerHTML = ''; 
+            const pageComments = commentsData[pageNum] || [];
+            if (pageComments.length === 0) {
+                commentsList.innerHTML = '<p class="text-dimmed text-center py-8">まだコメントはありません。</p>';
+                return;
+            }
+
+            pageComments.forEach(comment => {
+                const commentDiv = document.createElement('div');
+                commentDiv.className = 'flex space-x-3 p-4 border-b border-dimmed hover:bg-[#16181C] transition-colors duration-150'; 
+                const commentTimestamp = typeof comment.timestamp === 'string' ? new Date(comment.timestamp) : comment.timestamp;
+                const commenterName = comment.user === "自分" ? userProfile.name : comment.user;
+                const commenterAvatar = comment.user === "自分" ? userProfile.avatar : comment.avatar;
+
+
+                commentDiv.innerHTML = `
+                    <img class="w-10 h-10 rounded-full flex-shrink-0 mt-1 comment-target-tweet-avatar" src="${commenterAvatar}" alt="${commenterName} Avatar">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-1">
+                            <span class="font-bold text-[#E7E9EA] hover:underline">${commenterName}</span>
+                            <span class="text-sm text-dimmed">@${commenterName.replace(/\s+/g, '').toLowerCase()}_study</span>
+                            <span class="text-sm text-dimmed">·</span>
+                            <span class="text-sm text-dimmed hover:underline">${formatTimestamp(commentTimestamp)}</span>
+                        </div>
+                        <p class="text-[#E7E9EA] mt-1 whitespace-pre-wrap text-base">${escapeHTML(comment.text)}</p>
+                        <div class="flex justify-start space-x-10 mt-3 text-dimmed text-sm"> 
+                            <button class="comment-modal-action flex items-center space-x-1 hover:text-[#1D9BF0]"><i class="far fa-comment"></i> <span class="text-xs">0</span></button>
+                            <button class="comment-modal-action flex items-center space-x-1 hover:text-[#00BA7C]"><i class="fas fa-retweet"></i> <span class="text-xs">0</span></button>
+                            <button class="comment-modal-action flex items-center space-x-1 hover:text-[#F91880]"><i class="far fa-heart"></i> <span class="text-xs">0</span></button>
+                            <button class="comment-modal-action flex items-center space-x-1 hover:text-[#1D9BF0]"><i class="fas fa-arrow-up-from-bracket"></i></button>
+                        </div>
+                    </div>
+                `;
+                commentsList.appendChild(commentDiv);
+            });
+        }
+        
+        function formatTimestamp(timestamp) {
+            if (!(timestamp instanceof Date) || isNaN(timestamp)) {
+                return '不明な時間'; 
+            }
+            const now = new Date();
+            const seconds = Math.round((now - timestamp) / 1000);
+            const minutes = Math.round(seconds / 60);
+            const hours = Math.round(minutes / 60);
+            const days = Math.round(hours / 24);
+
+            if (seconds < 5) return `たった今`;
+            if (seconds < 60) return `${seconds}秒`;
+            if (minutes < 60) return `${minutes}分`;
+            if (hours < 24) return `${hours}時間`;
+            const month = timestamp.getMonth() + 1;
+            const day = timestamp.getDate();
+            if (now.getFullYear() === timestamp.getFullYear()) {
+                return `${month}月${day}日`;
+            } else {
+                return `${timestamp.getFullYear()}年${month}月${day}日`;
+            }
+        }
+        
+        function escapeHTML(str) {
+            if (typeof str !== 'string') return '';
+            return str.replace(/[&<>"']/g, function (match) {
+                return {
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                }[match];
+            });
+        }
+
+        submitCommentButton.addEventListener('click', () => {
+            const text = commentInput.value.trim();
+            if (text === '' || currentReplyingPageNum === null) return;
+
+            const newComment = {
+                user: "自分", // 内部的には "自分" で管理
+                text: text,
+                avatar: userProfile.avatar, // 保存されたアバターを使用
+                timestamp: new Date().toISOString(), 
+                pageNum: currentReplyingPageNum
+            };
+
+            if (!commentsData[currentReplyingPageNum]) commentsData[currentReplyingPageNum] = [];
+            commentsData[currentReplyingPageNum].unshift(newComment); 
+            commentCounts[currentReplyingPageNum] = (commentCounts[currentReplyingPageNum] || 0) + 1;
+
+            renderComments(currentReplyingPageNum);
+            commentInput.value = ''; 
+            commentInput.style.height = 'auto'; 
+            submitCommentButton.disabled = true;
+
+            const targetTweetElement = timeline.querySelector(`article[data-page-num="${currentReplyingPageNum}"]`);
+            if (targetTweetElement) {
+                const commentCountSpan = targetTweetElement.querySelector('.comment-count');
+                commentCountSpan.textContent = commentCounts[currentReplyingPageNum];
+            }
+            saveAllData();
+        });
+
+        // --- Profile Modal Logic ---
+        openProfileModalBtn.addEventListener('click', () => {
+            profileNameInput.value = userProfile.name;
+            profileAvatarPreview.src = userProfile.avatar;
+            profileModal.style.display = 'flex';
+        });
+
+        closeProfileModalBtn.addEventListener('click', () => {
+            profileModal.style.display = 'none';
+        });
+        
+        profileModal.addEventListener('click', (event) => {
+             if (event.target === profileModal) { 
+                closeProfileModalBtn.click();
+            }
+        });
+
+        profileAvatarInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    profileAvatarPreview.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        saveProfileButton.addEventListener('click', () => {
+            const newName = profileNameInput.value.trim();
+            if (newName) {
+                userProfile.name = newName;
+            }
+            // アバターはプレビューが更新されていればそれが新しいアバター
+            userProfile.avatar = profileAvatarPreview.src;
+            
+            saveData('userProfile', userProfile);
+            updateDisplayedUserProfile();
+            profileModal.style.display = 'none';
+
+            // コメントが既に表示されている場合、自分のコメントの表示を更新
+            if (currentReplyingPageNum !== null) {
+                 renderComments(currentReplyingPageNum);
+            }
+        });
+
+
+        // --- Other Modals ---
+        closeImageModalBtn.addEventListener('click', () => {
+            imageModal.style.display = 'none';
+            modalImage.src = ''; 
+        });
+        imageModal.addEventListener('click', (event) => {
+            if (event.target === imageModal) {
+                imageModal.style.display = 'none';
+                modalImage.src = '';
+            }
+        });
+
+        closeCommentModalBtn.addEventListener('click', () => {
+            commentModal.style.display = 'none';
+            currentReplyingPageNum = null;
+            commentTargetTweet.innerHTML = '';
+            commentsList.innerHTML = '';
+        });
+        commentModal.addEventListener('click', (event) => {
+             if (event.target === commentModal) { 
+                closeCommentModalBtn.click();
+            }
+        });
+
+        // --- Initial Load ---
+        window.addEventListener('load', () => {
+            initializeUserProfile(); // 最初にユーザープロフィールを読み込む
+            const lastPdfName = localStorage.getItem(STORAGE_KEY_PREFIX + 'lastPdfName');
+            if (lastPdfName) {
+                noPdfMessage.innerHTML += `<p class="text-sm text-dimmed mt-1">最後に学習したPDF: ${escapeHTML(lastPdfName)}</p>`;
+                initializeDataForPdf(lastPdfName);
+            }
+        });
+
+        pdfUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                localStorage.setItem(STORAGE_KEY_PREFIX + 'lastPdfName', file.name);
+            }
+        });
+    </script>
+</body>
+</html>
